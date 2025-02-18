@@ -10,11 +10,18 @@ permissions:
   packages: write
 jobs:
   build:
+    permissions:
+      contents: read
+      packages: write
+      attestations: write
+      id-token: write
     name: Docker build
     runs-on: ubuntu-latest
     outputs:
       VERSION: ${{ steps.gen_meta.outputs.VERSION }}
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
