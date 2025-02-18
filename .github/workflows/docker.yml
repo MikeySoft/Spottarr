@@ -12,19 +12,14 @@ jobs:
   build:
     name: Docker build
     runs-on: ubuntu-latest
+    outputs:
+      VERSION: ${{ steps.gen_meta.outputs.VERSION }}
     steps:
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        if: github.event_name != 'pull_request'
-        with:
-          username: ${{ vars.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
@@ -33,25 +28,45 @@ jobs:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
-          
+
+      - name: Generate Repository Metadata
+        id: gen_meta
+        run: |
+          echo "GITHUB_SHORT_SHA=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT;
+          echo "REPO=${GITHUB_REPOSITORY,,}" >> $GITHUB_OUTPUT;
+          echo "VERSION=$(cat version.txt)" >> $GITHUB_OUTPUT;
       - name: Add docker metadata
         uses: docker/metadata-action@v5
         id: meta
         with:
           images: |
-            spottarr/spottarr
-            ghcr.io/spottarr/spottarr
+            ghcr.io/mikeysoft/spottarr
           tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}},value=${{ steps.gen_meta.outputs.VERSION }},enable={{is_default_branch}}
+            type=raw,value=${{ steps.gen_meta.outputs.GITHUB_SHORT_SHA }},enable=${{ github.ref != format('refs/heads/{0}', 'main') }}
 
-      - name: Build and pushdock
+      - name: Build and Push
+        id: build-and-push-image
         uses: docker/build-push-action@v6
         with:
-          platforms: linux/amd64 #,linux/arm64
+          platforms: linux/amd64 ,linux/arm64
           file: src/Spottarr.Web/Dockerfile
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+  release:
+    permissions:
+      contents: write
+    if: ${{ startsWith(github.ref, 'refs/heads/main') }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Release Tag
+        uses: ncipollo/release-action@v1
+        env:
+          VERSION: ${{ needs.build.outputs.VERSION }}
+        with:
+          tag: ${{ env.VERSION }}
